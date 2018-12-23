@@ -1,0 +1,21 @@
+html, body { height: 100%; }
+
+:root {
+  --white: #EEE;
+  --shadow-color: rgba(0,0,0, 0.2);
+}
+
+body {
+  font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+  margin: 0;
+  color: #222;
+  background-color: #B98;
+  font-size: 44px;
+  overflow: hidden;
+}
+@media (pointer: fine) {
+  body {
+    font-size: 20px;
+  }
+}
+input, button { font-size: inherit; }
