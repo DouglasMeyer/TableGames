@@ -1,171 +1,186 @@
 import { html, render, Component } from 'https://unpkg.com/htm/preact/standalone.mjs';
 
-const solitare = {
-  name: 'Solitare',
-  init: () => {
-    const suites = 'Heart Diamond Spade Club'.split(' ');
-    const deck = new Array(52).fill().map((_, i) => ({
-      suite: suites[Math.floor(i / 13)],
-      value: i % 13 + 1,
-      yOffset: 0*0.2,
-      xOffset: 0,
-      interactable: false
-    })).sort(_ => Math.random() - 0.5);
-    const deal = count => deck.splice(0, count);
-    const table = [ new Array(7).fill().map(() => []), new Array(7).fill().map(() => []) ];
-
-    for (let i=0; i<7; i++) {
-      for (let j=i; j<7; j++) {
-        table[1][j].push({ ...deal(1)[0], revealed: j === i, interactable: j === i, yOffset: i*0.05 })
-      }
-    }
-    table[0][0] = deck.map(card => ({ ...card, interactable: true }));
-
-    return {
-      width: 7,
-      height: 2 + 6*0.05 + (12-3)*0.2,
-      table,
-      moving: []
-    };
-  },
-  grab(state, rowIndex, stackIndex, cardIndex) {
-    state.moving = state.table[rowIndex][stackIndex].splice(cardIndex, 1);
-    return state;
-  },
-  release(state, rowIndex, stackIndex, cardIndex) {
-    state.table[rowIndex][stackIndex].splice(cardIndex, 0, ...state.moving);
-    state.moving = [];
-    return state;
-  }
-};
-
-const games = [
-  solitare
-];
-
-class GameSelector extends Component {
-  constructor(props) {
-    super(props);
-    this.handleSelectGame = this.handleSelectGame.bind(this);
-  }
-
-  handleSelectGame() {
-    const input = this.base.querySelector('input[type="radio"]:checked');
-    if (!input) return;
-
-    const game = games.find(g => g.name === input.value);
-    this.props.onSelect(game);
-  }
-
-  render() {
-    return html`<div>
-      ${games.map(game =>
-        html`<input type="radio" value=${game.name} class="hero" />`
-      )}
-      <button onClick=${this.handleSelectGame}>Start Game</button>
-    </div>`;
-  }
-}
-
+const width = 72;
+const height = 110;
 class Card extends Component {
   constructor(props) {
     super(props);
-    this.handleMouseDown = props.onMouseDown.bind(null, props.rowIndex, props.stackIndex, props.cardIndex);
-    // this.handleMouseUp = props.onMouseUp.bind(null, props.rowIndex, props.stackIndex, props.cardIndex);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleReveal = this.handleReveal.bind(this);
   }
 
-  render({ revealed, value, suite, x, y, interactable }) {
+  handleMouseDown(e){
+    this.props.onMouseDown(this.props.index, e);
+  }
+  handleReveal(e){
+    e.preventDefault();
+    this.props.onReveal(this.props.index);
+  }
+
+  render({ revealed, value, suite, x, y, animated }) {
     return html`<use
       xlink:href=${`./Contemporary_playing_cards.svg#${revealed ? `${value}_${suite}` : 'Back'}`}
       x=${x} y=${y}
-      class=${interactable ? 'interactable' : ''}
+      class=${`interactable Card${animated ? ' animated' : ''}`}
       onMouseDown=${this.handleMouseDown}
+      onContextMenu=${this.handleReveal}
     />`;
-    // onMouseUp=${this.handleMouseUp}
   }
 }
+
+const sleep = seconds => new Promise(function(resolve){ setTimeout(resolve, 1000 * seconds); });
 
 class TableGames extends Component {
   constructor(props) {
     super(props);
-    this.state = {
-      game: null
-    };
-    this.movingStart = {};
-    this.startGame = this.startGame.bind(this);
+
+    this.state = { cards: [] };
+
+    this.startSolitare();
+
+    this.handleReveal = this.handleReveal.bind(this);
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleMouseUp = this.handleMouseUp.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
-    this.startGame(solitare);
+    this.startShuffle = this.startShuffle.bind(this);
+    this.startSolitare = this.startSolitare.bind(this);
   }
 
-  startGame(game) {
-    log('game', game);
-    this.setState({
-      game: { game, state: game.init() }
-    });
+  async startShuffle(){
+    let { cards } = this.state;
+    this.setState({ stacks: [] });
+    for (let i=cards.length-1,card; card=cards[i]; i--){
+      card.animated = true;
+      card.x = `${Math.random() * 80}%`;
+      card.y = `${Math.random() * 80}%`;
+      this.setState({ cards });
+      await sleep(0.01);
+    }
+    for (let i=0,card; card=cards[i]; i++){
+      card.revealed = false;
+      this.setState({ cards });
+      await sleep(0.01);
+    }
+    cards = cards.sort(_ => Math.random() - 0.5);
+    for (let i=0,card; card=cards[i]; i++){
+      card.x = 10;
+      card.y = 10;
+      this.setState({ cards });
+      await sleep(0.01);
+    }
+    for (let i=0,card; card=cards[i]; i++){
+      card.animated = false;
+    }
+  }
+  async startSolitare(){
+    const stacks = [
+      { x: 10 + (width+10)*0, y: 10 + (height+10)*0 },
+      { x: 10 + (width+10)*1, y: 10 + (height+10)*0 },
+
+      { x: 10 + (width+10)*3, y: 10 + (height+10)*0 },
+      { x: 10 + (width+10)*4, y: 10 + (height+10)*0 },
+      { x: 10 + (width+10)*5, y: 10 + (height+10)*0 },
+      { x: 10 + (width+10)*6, y: 10 + (height+10)*0 },
+
+      { x: 10 + (width+10)*0, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*1, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*2, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*3, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*4, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*5, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*6, y: 10 + (height+10)*1 },
+    ];
+    const suites = 'Heart Diamond Spade Club'.split(' ');
+    const cards = new Array(52).fill()
+      .map((_, i) => ({
+        suite: suites[Math.floor(i / 13)],
+        value: i % 13 + 1,
+        x: 10, y: 10,
+      }))
+      .sort(_ => Math.random() - 0.5);
+    this.state = { stacks, cards };
+
+    async function moveCard(index, y, x, reveal=false) {
+      this.setState(({ cards }) => {
+        const card = cards[index];
+        card.y = y;
+        card.x = x;
+        card.animated = true;
+        return { cards };
+      });
+      await sleep(0.3);
+      this.setState(({ cards }) => {
+        const card = cards[index];
+        card.revealed = reveal;
+        card.animated = false;
+        return { cards };
+      });
+    }
+    let cardIndex = 0;
+    for (let y=0; y<7; y++){
+      for (let x=y; x<7; x++){
+        await sleep(0.025);
+        moveCard.call(this, cardIndex++, 10+height+10+20*y, 10+(width+10)*x, x === y);
+      }
+    }
   }
 
-  handleMouseDown(rowIndex, stackIndex, cardIndex, { x, y }){
-    console.log('handleMouseDown', ...arguments);
-    const { game: { game, state } } = this.state;
-    const newState = game.grab(state, rowIndex, stackIndex, cardIndex);
-    newState.moving.forEach(card => {
-      card.x = stackIndex;
-      card.y = rowIndex;
-    });
-    this.movingStart = { x, y };
-    this.setState({
-      game: { game, state: newState },
-      movingDelta: { x: 0, y: 0 }
-    });
+  handleReveal(cardIndex){
+    const { cards } = this.state;
+    cards[cardIndex].revealed = !cards[cardIndex].revealed;
+    this.setState({ cards });
   }
-  handleMouseUp({ x, y }){
-    console.log('handleMouseUp', ...arguments);
-    const { game: { game, state } } = this.state;
-    this.setState({ game: {
-      game,
-      state: game.release(state, rowIndex, stackIndex, cardIndex),
-    }});
+  handleMouseDown(cardIndex, e){
+    e.preventDefault();
+    const { x, y } = e;
+    const { cards } = this.state;
+    const card = cards.splice(cardIndex, 1)[0];
+    cards.push(card);
+    this.grabbedCard = {
+      cardIndex: cards.length - 1,
+      last: { x, y },
+      from: { x: card.x, y: card.y }
+    };
+    this.setState({ cards })
   }
   handleMouseMove({ x, y }){
-    this.setState({
-      movingDelta: {
-        x: x - this.movingStart.x,
-        y: y - this.movingStart.y
-      }
-    });
+    if (!this.grabbedCard) return;
+    const { cardIndex, last } = this.grabbedCard;
+    const { cards, stacks } = this.state;
+    cards[cardIndex].x += x - last.x;
+    cards[cardIndex].y += y - last.y;
+    this.grabbedCard.last = { x, y };
+    this.setState({ cards });
+  }
+  handleMouseUp({ x, y }){
+    delete this.grabbedCard;
   }
 
-  render({}, { game }) {
-    if (!game) return html`<${GameSelector} onSelect=${this.startGame} />`;
+  render({}, { cards, stacks }) {
     return html `<div style="height: 100%; width: 100%;">
+      <div style="position: absolute; bottom: 0;">
+        <button onClick=${this.startSolitare}>Solitare</button>
+        <button onClick=${this.startShuffle}>Shuffle</button>
+      </div>
       <svg
         style="height: 100%; width: 100%; font-size: 12px;"
-        viewBox=${`-10 -10 ${game.state.width * (72 + 10) + 10} ${game.state.height * (110 + 10) + 10}`}
         onMouseMove=${this.handleMouseMove}
         onMouseUp=${this.handleMouseUp}
       >
-        ${game.state.table.map((row, rowIndex) =>
-          row.map((stack, stackIndex) =>
-            stack.map((card, cardIndex) =>
-              html`<${Card} ...${card} ...${{ rowIndex, stackIndex, cardIndex }}
-                x=${`${100/game.state.width*(stackIndex+card.xOffset)}%`}
-                y=${`${100/game.state.height*(rowIndex+card.yOffset)}%`}
-                onMouseDown=${this.handleMouseDown}
-              />`
-            )
-          ).reduce((a,b) => a.concat(b))
-        ).reduce((a,b) => a.concat(b)).concat(
-          game.state.moving.map(card =>
-            html`<${Card} ...${card}
-              x=${`calc(${100/game.state.width*(card.x+card.xOffset)}% + ${this.state.movingDelta.x}px)`}
-              y=${`calc(${100/game.state.height*(card.y+card.yOffset)}% + ${this.state.movingDelta.y}px)`}
-            />`
-          )
+        ${stacks.map(({ x, y }) =>
+          html`<rect ...${{ width, height, x, y }} rx="6" fill="transparent" stroke="black" stroke-width=".5"/>`
+        )}
+        ${cards.map((card, cardIndex) =>
+          html`<${Card} ...${card} index=${cardIndex} key=${`${card.suite} ${card.value}`}
+            onMouseDown=${this.handleMouseDown}
+            onReveal=${this.handleReveal}
+          />`
         )}
       </svg>
     </div>`;
   }
 }
-render(html`<${TableGames} />`, document.body);
+const root = document.createElement('div');
+document.body.appendChild(root);
+root.style = "height: 100%; width: 100%;"
+render(html`<${TableGames} />`, root);

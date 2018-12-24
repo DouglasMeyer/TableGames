@@ -19,3 +19,9 @@ body {
   }
 }
 input, button { font-size: inherit; }
+.interactable {
+  cursor: pointer;
+}
+.Card.animated {
+  transition: all 0.3s ease;
+}
