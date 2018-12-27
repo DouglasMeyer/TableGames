@@ -82,29 +82,39 @@ class TableGames extends Component {
       { x: 10 + (width+10)*5, y: 10 + (height+10)*0 },
       { x: 10 + (width+10)*6, y: 10 + (height+10)*0 },
 
-      { x: 10 + (width+10)*0, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*1, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*2, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*3, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*4, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*5, y: 10 + (height+10)*1 },
-      { x: 10 + (width+10)*6, y: 10 + (height+10)*1 },
+      { x: 10 + (width+10)*0, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*1, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*2, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*3, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*4, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*5, y: 10 + (height+10)*1, type: 'cascade' },
+      { x: 10 + (width+10)*6, y: 10 + (height+10)*1, type: 'cascade' },
     ];
+    stacks.forEach(stack => stack.add = function(card){
+      if (card.parent) card.parent.child = null;
+      let target = this;
+      while (target.child) target = target.child;
+      card.x = target.x;
+      card.y = this.type === 'cascade' && target !== this ? target.y + 20 : target.y;
+      target.child = card;
+      card.parent = target;
+    });
     const suites = 'Heart Diamond Spade Club'.split(' ');
     const cards = new Array(52).fill()
       .map((_, i) => ({
         suite: suites[Math.floor(i / 13)],
         value: i % 13 + 1,
         x: 10, y: 10,
+        animated: true,
       }))
       .sort(_ => Math.random() - 0.5);
+    cards.forEach(stacks[0].add.bind(stacks[0]));
     this.state = { stacks, cards };
 
-    async function moveCard(index, y, x, reveal=false) {
+    async function moveCard(index, stack, reveal=false) {
       this.setState(({ cards }) => {
         const card = cards[index];
-        card.y = y;
-        card.x = x;
+        stack.add(card);
         card.animated = true;
         return { cards };
       });
@@ -116,11 +126,11 @@ class TableGames extends Component {
         return { cards };
       });
     }
-    let cardIndex = 0;
+    let cardIndex = 52 - 7 - 6 - 5 - 4 - 3 - 2 - 1;
     for (let y=0; y<7; y++){
       for (let x=y; x<7; x++){
         await sleep(0.025);
-        moveCard.call(this, cardIndex++, 10+height+10+20*y, 10+(width+10)*x, x === y);
+        moveCard.call(this, cardIndex++, stacks[x+6], x === y);
       }
     }
   }
@@ -130,29 +140,70 @@ class TableGames extends Component {
     cards[cardIndex].revealed = !cards[cardIndex].revealed;
     this.setState({ cards });
   }
-  handleMouseDown(cardIndex, e){
-    e.preventDefault();
-    const { x, y } = e;
+  handleMouseDown(cardIndex, event){
+    const { x, y } = event;
     const { cards } = this.state;
-    const card = cards.splice(cardIndex, 1)[0];
+    let stackLength = 1;
+    let card = cards.splice(cardIndex, 1)[0];
+    card.animated = false;
     cards.push(card);
+    while (card.child) {
+      stackLength++;
+      card = cards.splice(cards.indexOf(card.child), 1)[0];
+      card.animated = false;
+      cards.push(card);
+    }
     this.grabbedCard = {
-      cardIndex: cards.length - 1,
+      cardIndex: cards.length - stackLength,
       last: { x, y },
       from: { x: card.x, y: card.y }
     };
     this.setState({ cards })
   }
-  handleMouseMove({ x, y }){
+  handleMouseMove(event){
     if (!this.grabbedCard) return;
     const { cardIndex, last } = this.grabbedCard;
     const { cards, stacks } = this.state;
-    cards[cardIndex].x += x - last.x;
-    cards[cardIndex].y += y - last.y;
-    this.grabbedCard.last = { x, y };
+    let card = cards[cardIndex];
+    card.x += event.x - last.x;
+    card.y += event.y - last.y;
+    this.grabbedCard.last = { x: event.x, y: event.y };
+    this.grabbedCard.target = [ ...cards, ...stacks ]
+      .filter(({ x: tX, y: tY }, index) =>
+        (index < cardIndex || index >= 52) &&
+        tX < card.x + width && tX > card.x - width &&
+        tY < card.y + height && tY > card.y - height
+      )
+      .sort((a, b) =>
+        Math.pow(Math.pow(card.x - a.x, 2) + Math.pow(card.y - a.y, 2), 0.5) -
+        Math.pow(Math.pow(card.x - b.x, 2) + Math.pow(card.y - b.y, 2), 0.5)
+      )[0];
+    while (card.child) {
+      card = card.child;
+      card.x += event.x - last.x;
+      card.y += event.y - last.y;
+    }
     this.setState({ cards });
   }
-  handleMouseUp({ x, y }){
+  handleMouseUp(){
+    if (!this.grabbedCard) return;
+    const { cards } = this.state;
+    let card = cards[this.grabbedCard.cardIndex];
+    card.animated = true;
+    let stack = this.grabbedCard.target;
+    if (stack) {
+      while (stack.parent) stack = stack.parent;
+      stack.add(card);
+      while (card.child) {
+        card = card.child;
+        card.animated = true;
+        stack.add(card);
+      }
+    } else {
+      card.x = this.grabbedCard.from.x;
+      card.y = this.grabbedCard.from.y;
+    }
+    this.setState({ cards });
     delete this.grabbedCard;
   }
 
