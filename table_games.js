@@ -5,6 +5,7 @@ import Solitare from './solitare.js';
 class Item extends Component {
   constructor(props){
     super(props);
+    this.state = { x: props.x, y: props.y };
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleMouseUp = this.handleMouseUp.bind(this);
   }
@@ -19,9 +20,22 @@ class Item extends Component {
     const { item } = this.props;
     item.place({ altKey, ctrlKey, metaKey, shiftKey });
   }
-  render({ item, image, ...props }){
+  shouldComponentUpdate(nextProps, nextState){
+    const { x, y, image } = this.props;
+    const didChange =
+      x !== nextProps.x || y !== nextProps.y || image !== nextProps.image ||
+      this.state.x !== nextState.x || this.state.y !== nextState.y;
+    return didChange;
+  }
+  componentWillUpdate(props, state){
+    setTimeout(() => {
+      this.setState({ x: props.x, y: props.y });
+    });
+  }
+  render({ item, image, x: _x, y: _y, ...props }, { x, y }){
     return html`<use ...${props}
       xlinkHref=${image}
+      x=${x} y=${y}
       width=${item.width} height=${item.height}
       class=${`Card ${item.stack === item.game.holdingStack ? '' : 'animated'}`}
       onMouseDown=${this.handleMouseDown}
@@ -72,17 +86,10 @@ class TableGames extends Component {
 
   render({}, { holding: { dx, dy } }) {
     const scale = this.svgEl && this.svgEl.getScreenCTM().a;
-    const items = [];
-    function addItem(item){
-      const heald = item.stack === this.game.holdingStack;
-      if (heald) {
-        items.push(html`<${Item} key=${item.id} style=${{pointerEvents: 'none'}} x=${item.x + dx/scale} y=${item.y + dy/scale} image=${item.image} item=${item} />`);
-      } else {
-        items.push(html`<${Item} key=${item.id} x=${item.x} y=${item.y} image=${item.image} item=${item} />`);
-      }
-      if (item.items) item.items.forEach(addItem, this);
+    const allItems = this.game.items.slice();
+    for (let i=0,item; item=allItems[i]; i++) {
+      if (item.items) allItems.push(...item.items);
     }
-    this.game.items.forEach(addItem, this);
     return html `<div style=${{height: '100%', width: '100%'}}>
       <div style=${{position: 'absolute', bottom: 0}}>
         <button onClick=${this.startSolitare}>Solitare</button>
@@ -95,7 +102,11 @@ class TableGames extends Component {
         onMouseMove=${this.handleMouseMove}
         onMouseUp=${this.handleMouseUp}
       >
-        ${items}
+        ${allItems.map(item =>
+          item.stack === this.game.holdingStack
+            ? html`<${Item} key=${item.id} style=${{pointerEvents: 'none', touchAction: 'none'}} x=${item.x + dx/scale} y=${item.y + dy/scale} image=${item.image} item=${item} />`
+            : html`<${Item} key=${item.id} x=${item.x} y=${item.y} image=${item.image} item=${item} />`
+        )}
       </svg>
     </div>`;
   }

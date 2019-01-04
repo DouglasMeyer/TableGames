@@ -177,10 +177,10 @@ export default class Solitare {
     this.goalStacks = new Array(4).fill().map((_, i) => new GoalStack(this, ...Card.pos(3+i, 0)));
     this.cascadingStacks = new Array(7).fill().map((_, i) => new CascadingStack(this, ...Card.pos(i, 1)));
     this.items = [
+      ...this.cascadingStacks,
       this.drawStack,
       this.discardStack,
       ...this.goalStacks,
-      ...this.cascadingStacks,
       this.holdingStack
     ];
     this.items.forEach((stack, index) => { stack.id = `stack_${index}`; });
