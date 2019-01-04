@@ -11,6 +11,7 @@
 <desc>Contemporary design deck of playing card with typographic face cards - Published by Betzaar.com under the CreativeCommons Attribution+ShareAlike licence</desc>
 
 <defs>
+	<rect id="stack" width="72" height="110" rx="6" fill="transparent" stroke="black" stroke-width=".5"/>
 	<!-- Card outlines -->
 	<rect id="out" width="72" height="110" rx="6" fill="white" stroke="black" stroke-width=".5"/>
 
