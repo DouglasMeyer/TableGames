@@ -22,6 +22,10 @@ input, button { font-size: inherit; }
 .interactable {
   cursor: pointer;
 }
+svg * {
+  pointer-events: none;
+  touch-action: none;
+}
 .Card.animated {
   transition: all 0.3s ease;
 }

@@ -10,14 +10,16 @@ const cards = new Array(52).fill().map((_, index) => ({
 /* API
 items: []
 x, y, width, height, image
-canPick, pick
+canPick, pick => []
 canPlace, place
 */
 
 class Card {
   static get url() { return `./Contemporary_playing_cards.svg`; }
   static get width() { return 72; }
+  get width(){ return Card.width; }
   static get height() { return 110; }
+  get height(){ return Card.height; }
   static get padding() { return 10; }
   static get peek() { return 25; }
   static pos(x, y) {
@@ -51,6 +53,8 @@ class Card {
   place(){ this.stack.place(this); }
 }
 class Stack {
+  get width(){ return Card.width; }
+  get height(){ return Card.height; }
   constructor(game, x, y) {
     Object.assign(this, {
       game, x, y, items: []
