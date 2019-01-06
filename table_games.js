@@ -34,7 +34,10 @@ class TableGames extends Component {
   constructor(props) {
     super(props);
 
-    this.state = { holding: { dx: 0, dy: 0 } };
+    this.state = {
+      items: [],
+      holding: { dx: 0, dy: 0 }
+    };
     this.dragStart = { x: 0, y: 0 };
 
     this.startSolitare();
@@ -50,15 +53,29 @@ class TableGames extends Component {
   }
   componentDidMount(){
     this.svgTransformationMatrix = this.svgEl.getScreenCTM().inverse();
-    this.svgEl.addEventListener('resize', this.componentDidMount);
+    window.addEventListener('resize', this.componentDidMount);
   }
 
   async startSolitare(){
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
     this.game = new Solitare();
-    this.unsubscribe = this.game.subscribe(() => this.forceUpdate());
-    this.forceUpdate();
+    this.setState({ items: [] });
+    this.unsubscribe = this.game.subscribe((itemId, item) => {
+      this.setState(({ items }) => {
+        const index = items.findIndex(({ id }) => id === itemId);
+        if (index === -1) return { items: [ ...items, item ] };
+        if (!item) return { items: [
+          ...items.slice(0, index),
+          ...items.slice(index + 1)
+        ] };
+        return { items: [
+          ...items.slice(0, index),
+          ...items.slice(index + 1),
+          item
+        ] };
+      });
+    });
   }
 
   itemAt(x, y){
@@ -67,7 +84,7 @@ class TableGames extends Component {
     domPoint.y = y;
     const svgPoint = domPoint.matrixTransform(this.svgTransformationMatrix);
 
-    const allItems = this.game.items.slice();
+    const allItems = this.state.items.slice();
     for (let i=0,item; item=allItems[i]; i++) {
       if (item.items) allItems.push(...item.items);
     }
@@ -142,12 +159,9 @@ class TableGames extends Component {
     });
   }
 
-  render({}, { holding: { dx, dy } }) {
+  render({}, { items, holding: { dx, dy } }) {
     const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
-    const allItems = this.game.items.slice();
-    for (let i=0,item; item=allItems[i]; i++) {
-      if (item.items) allItems.push(...item.items);
-    }
+    const allItems = items;
     return html `<div style=${{height: '100%', width: '100%'}}>
       <div style=${{position: 'absolute', bottom: 0}}>
         <button onClick=${this.startSolitare}>Solitare</button>
