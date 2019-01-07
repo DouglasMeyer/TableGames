@@ -10,8 +10,8 @@ const cards = new Array(52).fill().map((_, index) => ({
 /* API
 items: []
 x, y, width, height, image
-canPick, pick => []
-canPlace, place
+canPick, pick(keys) => []
+canPlace, place(keys, cardsToPlace)
 */
 
 class Card {
@@ -42,16 +42,19 @@ class Card {
   get x() { return this.stack.cardPos(this).x; }
   get y() { return this.stack.cardPos(this).y; }
   pick({ altKey, ctrlKey, metaKey, shiftKey }){
-    if (shiftKey) {
+    if (shiftKey && this.revealed) {
       const goalStack = this.game.goalStacks.find(stack => stack.canPlace(this));
       const cardLastOnStack = this === this.stack.items.slice(-1)[0];
-      if (goalStack && cardLastOnStack) goalStack.items.push(this.stack.items.splice(-1)[0]);
-      this.trigger();
-    } else {
-      this.stack.pick(this);
+      if (goalStack && cardLastOnStack) {
+        goalStack.items.push(this.stack.items.splice(-1)[0]);
+        this.trigger();
+        this.game.checkWin();
+        return;
+      }
     }
+    return this.stack.pick(this);
   }
-  place(){ this.stack.place(this); }
+  place(_keys, cards){ this.stack.place(this, cards); }
 }
 class Stack {
   get width(){ return Card.width; }
@@ -91,21 +94,22 @@ class DrawStack extends Stack {
       }
     }
   }
-  place(_card){}
+  place(_card, _cards){}
 }
 class DiscardStack extends Stack {
   pick(_card){
-    const cards = this.items.splice(-1);
-    this.game.holdingStack.grab(cards, this);
+    const cards = this.items.slice(-1);
+    if (!cards[0]) return;
     cards[0].trigger();
+    return cards;
   }
-  place(_card){}
+  place(_card, _cards){}
 }
 class GoalStack extends Stack {
   pick(_card){
-    const cards = this.items.splice(-1);
-    this.game.holdingStack.grab(cards, this);
+    const cards = this.items.slice(-1);
     cards[0].trigger();
+    return cards;
   }
   canPlace(card){
     const lastOnStack = this.items.slice(-1)[0];
@@ -114,12 +118,14 @@ class GoalStack extends Stack {
         card.value === lastOnStack.value + 1
       : card.value === 1;
   }
-  place(_card){
-    const card = this.game.holdingStack.items[0];
-    const canPlace = this.game.holdingStack.items.length === 1 && this.canPlace(card);
-    if (!canPlace) return;
-    this.items.push(...this.game.holdingStack.items.splice(0));
+  place(_card, cards){
+    const card = cards[0];
+    if (!this.canPlace(card)) return;
+    const items = card.stack.items;
+    items.splice(items.indexOf(card), 1);
+    this.items.push(card);
     card.trigger();
+    this.game.checkWin();
   }
 }
 class CascadingStack extends Stack {
@@ -127,26 +133,31 @@ class CascadingStack extends Stack {
     const index = this.items.indexOf(card);
     if (index === -1) return;
     if (card.revealed) {
-      this.game.holdingStack.grab(this.items.splice(index), this);
+      const cards = this.items.slice(index)
+      cards.forEach(card => card.trigger());
+      return cards;
     } else if (index === this.items.length - 1) {
       const card = this.items.slice(-1)[0];
       card.revealed = true;
       card.trigger();
     }
   }
-  place(_card) {
+  place(_card, cards) {
     const lastOnStack = this.items.slice(-1)[0];
-    const firstHealdCard = this.game.holdingStack.items[0];
+    const firstHealdCard = cards[0];
     if (!firstHealdCard) return;
-    const canPlace = this.game.holdingStack.items.length &&
+    const canPlace = cards.length &&
       lastOnStack
       ? lastOnStack.value - 1 === firstHealdCard.value &&
         Math.floor(suits.indexOf(lastOnStack.suit)/2) !== Math.floor(suits.indexOf(firstHealdCard.suit)/2)
       : firstHealdCard.value === 13;
     if (!canPlace) return;
-    const cards = this.game.holdingStack.items.splice(0);
-    this.items.push(...cards);
-    cards.forEach(card => card.trigger());
+    cards.forEach(card => {
+      const items = card.stack.items;
+      items.splice(items.indexOf(card), 1);
+      this.items.push(card);
+      card.trigger();
+    });
   }
   cardPos(card) {
     const index = this.items.indexOf(card);
@@ -154,39 +165,12 @@ class CascadingStack extends Stack {
     return { x: this.x, y: this.y + offset };
   }
 }
-class HoldingStack {
-  constructor(game) {
-    Object.assign(this, {
-      game, x: 0, y: 0, items: []
-    });
-  }
-  trigger(){ this.game.trigger(this.id, this); }
-  cardPos(card) {
-    const index = this.items.indexOf(card);
-    return { x: this.x, y: this.y + index * Card.peek };
-  }
-  grab(cards, stack) {
-    this.sourceStack = stack;
-    this.x = stack.cardPos(cards[0]).x;
-    this.y = stack.cardPos(cards[0]).y;
-    this.items.push(...cards);
-    cards.forEach(card => card.trigger());
-  }
-  reset() {
-    if (this.sourceStack) {
-      const cards = this.items.splice(0);
-      this.sourceStack.items.push(...cards);
-      cards.forEach(card => card.trigger());
-    }
-    this.sourceStack = null;
-  }
-}
 
+const sleep = seconds => new Promise(resolve => setTimeout(resolve, 1000*seconds));
 export default class Solitare {
   constructor() {
     this.subscriptions = [];
     [ this.width, this.height ] = Card.pos(7, 4);
-    this.holdingStack = new HoldingStack(this);
     this.drawStack = new DrawStack(this, ...Card.pos(0, 0));
     this.discardStack = new DiscardStack(this, ...Card.pos(1, 0));
     this.goalStacks = new Array(4).fill().map((_, i) => new GoalStack(this, ...Card.pos(3+i, 0)));
@@ -195,20 +179,48 @@ export default class Solitare {
       ...this.cascadingStacks,
       this.drawStack,
       this.discardStack,
-      ...this.goalStacks,
-      this.holdingStack
+      ...this.goalStacks
     ];
     this.items.forEach((stack, index) => { stack.id = `stack_${index}`; });
-    // deal
+    this.deal();
+  }
+  async deal() {
     for (let i=0; i<7; i++) {
+      let card;
       for (let j=i; j<7; j++) {
-        this.cascadingStacks[j].items.push(this.drawStack.items.pop());
+        await sleep(0.05);
+        card = this.drawStack.items.pop();
+        this.cascadingStacks[j].items.push(card);
+        card.trigger();
       }
-      this.cascadingStacks[i].items.slice(-1)[0].revealed = true;
+      await sleep(0.05);
+      card = this.cascadingStacks[i].items.slice(-1)[0];
+      card.revealed = true;
+      card.trigger();
+    }
+  }
+  async checkWin() {
+    if (!this.goalStacks.every(stack => stack.items.length === 13)) return;
+    for (let index=0,stack; stack=this.goalStacks[index]; index++){
+      let x = (this.width - Card.width) * Math.random();
+      let y = (this.height - Card.height) * Math.random();
+      stack.items.forEach(({ id, image, width, height }) => {
+        this.trigger(id, { id, image, width, height, x, y });
+      });
+      await sleep(0.3);
+      stack.items.forEach(({ id, image, width, height }, index, items) => {
+        this.trigger(id, {
+          id, image, width, height,
+          x: x + Card.height * 4 * Math.cos(index / items.length * Math.PI*2),
+          y: y + Card.height * 4 * Math.sin(index / items.length * Math.PI*2)
+        });
+      });
+      await sleep(0.5);
     }
   }
   subscribe(fn) {
     this.subscriptions.push(fn);
+    fn(null, { width: this.width, height: this.height });
     this.items.forEach(stack => {
       stack.trigger();
     });

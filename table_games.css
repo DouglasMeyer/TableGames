@@ -26,6 +26,9 @@ svg * {
   pointer-events: none;
   touch-action: none;
 }
+.Card {
+  will-change: auto;
+}
 .Card.animated {
   transition: all 0.3s ease;
 }

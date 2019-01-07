@@ -20,24 +20,29 @@ class Item extends Component {
       this.setState({ x: props.x, y: props.y });
     }, 1000/60);
   }
-  render({ item, image, x: _x, y: _y, ...props }, { x, y }){
+  render({ heald, item, image, x: _x, y: _y, ...props }, { x, y }){
     return html`<use ...${props}
       xlinkHref=${image}
       x=${x} y=${y}
       width=${item.width} height=${item.height}
-      class=${`Card ${item.stack === item.game.holdingStack ? '' : 'animated'}`}
+      class=${`Card ${heald ? '' : 'animated'}`}
     />`;
   }
 }
 
 class TableGames extends Component {
+  static get initialState() {
+    return {
+      items: [],
+      game: { width: 800, height: 600 },
+      holding: { dx: 0, dy: 0 }
+    };
+  }
   constructor(props) {
     super(props);
 
-    this.state = {
-      items: [],
-      holding: { dx: 0, dy: 0 }
-    };
+    this.state = TableGames.initialState;
+    this.healdItems = [];
     this.dragStart = { x: 0, y: 0 };
 
     this.startSolitare();
@@ -49,31 +54,40 @@ class TableGames extends Component {
     this.handleTouchMove = this.handleTouchMove.bind(this);
     this.handleTouchEnd = this.handleTouchEnd.bind(this);
     this.startSolitare = this.startSolitare.bind(this);
-    this.componentDidMount = this.componentDidMount.bind(this);
+    this.handleResize = this.handleResize.bind(this);
   }
   componentDidMount(){
+    this.handleResize();
+    window.addEventListener('resize', this.handleResize);
+  }
+  handleResize(){
     this.svgTransformationMatrix = this.svgEl.getScreenCTM().inverse();
-    window.addEventListener('resize', this.componentDidMount);
   }
 
   async startSolitare(){
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
-    this.game = new Solitare();
-    this.setState({ items: [] });
-    this.unsubscribe = this.game.subscribe((itemId, item) => {
-      this.setState(({ items }) => {
-        const index = items.findIndex(({ id }) => id === itemId);
-        if (index === -1) return { items: [ ...items, item ] };
-        if (!item) return { items: [
-          ...items.slice(0, index),
-          ...items.slice(index + 1)
-        ] };
-        return { items: [
-          ...items.slice(0, index),
-          ...items.slice(index + 1),
-          item
-        ] };
+    this.setState(TableGames.initialState, () => {
+      this.game = new Solitare();
+      this.unsubscribe = this.game.subscribe((itemId, item) => {
+        if (itemId !== null) {
+          this.setState(({ items }) => {
+            const index = items.findIndex(({ id }) => id === itemId);
+            if (index === -1) return { items: [ ...items, item ] };
+            if (!item) return { items: [
+              ...items.slice(0, index),
+              ...items.slice(index + 1)
+            ] };
+            return { items: [
+              ...items.slice(0, index),
+              ...items.slice(index + 1),
+              item
+            ] };
+          });
+        } else {
+          this.setState({ game: item });
+          setTimeout(this.handleResize, 10);
+        }
       });
     });
   }
@@ -90,7 +104,7 @@ class TableGames extends Component {
     }
 
     return allItems.reverse().find(item => {
-      if (this.game.holdingStack.items.includes(item)) return false;
+      if (this.healdItems.includes(item)) return false;
       const { id, x, y, width, height } = item;
       return svgPoint.x >= x && svgPoint.x <= (x + width) &&
              svgPoint.y >= y && svgPoint.y <= (y + height);
@@ -102,13 +116,13 @@ class TableGames extends Component {
     const item = this.itemAt(event.pageX, event.pageY);
     if (!item) return;
     const { altKey, ctrlKey, metaKey, shiftKey } = event;
-    item.pick({ altKey, ctrlKey, metaKey, shiftKey });
+    this.healdItems = item.pick({ altKey, ctrlKey, metaKey, shiftKey }) || [];
 
     this.dragStart = { x: event.pageX, y: event.pageY };
     this.setState({ holding: { dx: 0, dy: 0 } });
   }
   handleMouseMove(event){
-    if (this.game.holdingStack.items.length === 0) return;
+    if (!this.healdItems.length) return;
     const { pageX: x, pageY: y } = event;
     this.setState({ holding: {
       dx: x - this.dragStart.x,
@@ -119,10 +133,11 @@ class TableGames extends Component {
     const item = this.itemAt(event.pageX, event.pageY);
     if (item) {
       const { altKey, ctrlKey, metaKey, shiftKey } = event;
-      item.place({ altKey, ctrlKey, metaKey, shiftKey });
+      item.place({ altKey, ctrlKey, metaKey, shiftKey }, this.healdItems);
     }
 
-    this.game.holdingStack.reset();
+    this.healdItems = [];
+    this.forceUpdate();
   }
 
   handleTouchStart(event){
@@ -159,16 +174,15 @@ class TableGames extends Component {
     });
   }
 
-  render({}, { items, holding: { dx, dy } }) {
+  render({}, { game: { width, height}, items, holding: { dx, dy } }) {
     const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
-    const allItems = items;
     return html `<div style=${{height: '100%', width: '100%'}}>
       <div style=${{position: 'absolute', bottom: 0}}>
         <button onClick=${this.startSolitare}>Solitare</button>
       </div>
       <svg
         style=${{height: '100%', width: '100%', fontSize: 12}}
-        viewBox=${`0 0 ${this.game.width} ${this.game.height}`}
+        viewBox=${`0 0 ${width} ${height}`}
         ref=${el => this.svgEl = el}
         onMouseDown=${this.handleMouseDown}
         onMouseMove=${this.handleMouseMove}
@@ -177,9 +191,9 @@ class TableGames extends Component {
         onTouchMove=${this.handleTouchMove}
         onTouchEnd=${this.handleTouchEnd}
       >
-        ${allItems.map(item =>
-          item.stack === this.game.holdingStack
-            ? html`<${Item} key=${item.id} x=${item.x + dx/scale} y=${item.y + dy/scale} image=${item.image} item=${item} />`
+        ${items.map(item =>
+          this.healdItems.includes(item)
+            ? html`<${Item} key=${item.id} x=${item.x + dx/scale} y=${item.y + dy/scale} image=${item.image} heald item=${item} />`
             : html`<${Item} key=${item.id} x=${item.x} y=${item.y} image=${item.image} item=${item} />`
         )}
       </svg>
