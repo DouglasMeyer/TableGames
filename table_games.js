@@ -1,7 +1,5 @@
 import { html, render, Component } from 'https://unpkg.com/htm/preact/standalone.mjs';
 
-import Solitare from './solitare.js';
-
 class Item extends Component {
   constructor(props){
     super(props);
@@ -30,22 +28,22 @@ class Item extends Component {
   }
 }
 
-class TableGames extends Component {
+class PlayGame extends Component {
   static get initialState() {
     return {
       items: [],
-      game: { width: 800, height: 600 },
+      game: { width: 800, height: 600, actions: [] },
       holding: { dx: 0, dy: 0 }
     };
   }
   constructor(props) {
     super(props);
 
-    this.state = TableGames.initialState;
+    this.state = PlayGame.initialState;
     this.healdItems = [];
     this.dragStart = { x: 0, y: 0 };
 
-    this.startSolitare();
+    this.startGame();
 
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
@@ -53,23 +51,34 @@ class TableGames extends Component {
     this.handleTouchStart = this.handleTouchStart.bind(this);
     this.handleTouchMove = this.handleTouchMove.bind(this);
     this.handleTouchEnd = this.handleTouchEnd.bind(this);
-    this.startSolitare = this.startSolitare.bind(this);
+    this.startGame = this.startGame.bind(this);
     this.handleResize = this.handleResize.bind(this);
   }
   componentDidMount(){
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
   }
+  componentWillUnmount(){
+    if (this.unsubscribe) this.unsubscribe();
+  }
   handleResize(){
     this.svgTransformationMatrix = this.svgEl.getScreenCTM().inverse();
   }
 
-  async startSolitare(){
+  async startGame(){
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
-    this.setState(TableGames.initialState, () => {
-      this.game = new Solitare();
-      this.unsubscribe = this.game.subscribe((itemId, item) => {
+    this.setState(PlayGame.initialState, () => {
+      const { gameWorker } = this.props;
+      gameWorker.postMessage({ type: 'start' });
+      this.unsubscribe = () => gameWorker.postMessage({ type: 'end' });
+      gameWorker.onmessage = event => {
+        const { itemId, item, healdItems } = event.data;
+        if (healdItems) {
+          this.healdItems = healdItems.map(id => this.state.items.find(item => item.id === id));
+          this.setState({ holding: { dx: 0, dy: 0 } });
+          return;
+        }
         if (itemId !== null) {
           this.setState(({ items }) => {
             const index = items.findIndex(({ id }) => id === itemId);
@@ -88,7 +97,7 @@ class TableGames extends Component {
           this.setState({ game: item });
           setTimeout(this.handleResize, 10);
         }
-      });
+      };
     });
   }
 
@@ -98,12 +107,7 @@ class TableGames extends Component {
     domPoint.y = y;
     const svgPoint = domPoint.matrixTransform(this.svgTransformationMatrix);
 
-    const allItems = this.state.items.slice();
-    for (let i=0,item; item=allItems[i]; i++) {
-      if (item.items) allItems.push(...item.items);
-    }
-
-    return allItems.reverse().find(item => {
+    return this.state.items.slice().reverse().find(item => {
       if (this.healdItems.includes(item)) return false;
       const { id, x, y, width, height } = item;
       return svgPoint.x >= x && svgPoint.x <= (x + width) &&
@@ -115,25 +119,57 @@ class TableGames extends Component {
     event.preventDefault();
     const item = this.itemAt(event.pageX, event.pageY);
     if (!item) return;
-    const { altKey, ctrlKey, metaKey, shiftKey } = event;
-    this.healdItems = item.pick({ altKey, ctrlKey, metaKey, shiftKey }) || [];
+    const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
+    this.props.gameWorker.postMessage({
+      type: 'pick',
+      itemId: item.id,
+      event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+    });
 
     this.dragStart = { x: event.pageX, y: event.pageY };
-    this.setState({ holding: { dx: 0, dy: 0 } });
   }
   handleMouseMove(event){
-    if (!this.healdItems.length) return;
     const { pageX: x, pageY: y } = event;
+    if (!this.healdItems.length) return;
     this.setState({ holding: {
       dx: x - this.dragStart.x,
       dy: y - this.dragStart.y
     } });
   }
   handleMouseUp(event){
-    const item = this.itemAt(event.pageX, event.pageY);
-    if (item) {
-      const { altKey, ctrlKey, metaKey, shiftKey } = event;
-      item.place({ altKey, ctrlKey, metaKey, shiftKey }, this.healdItems);
+    const { dx, dy } = this.state.holding;
+    const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
+    const healdItem = this.healdItems[0];
+    if (healdItem) {
+      const healdCenter = {
+        x: healdItem.x + dx/scale + healdItem.width/2,
+        y: healdItem.y + dy/scale + healdItem.height/2
+      };
+      const itemDistances = new Map();
+      this.state.items.forEach(item => {
+        if (
+          this.healdItems.includes(item) ||
+          item.x + item.width < healdItem.x + dx/scale ||
+          item.y + item.height < healdItem.y + dy/scale ||
+          item.x > healdItem.x + dx/scale + healdItem.width ||
+          item.y > healdItem.y + dy/scale + healdItem.height
+        ) return;
+        itemDistances.set(item, Math.pow(
+          Math.pow(item.x + item.width/2 - healdCenter.x, 2) +
+          Math.pow(item.y + item.height/2 - healdCenter.y, 2)
+        , 0.5));
+      });
+      const minDistance = Math.min(...itemDistances.values());
+      const closestEntry = [...itemDistances.entries()].find(([ item, distance ]) => distance === minDistance);
+      if (closestEntry) {
+        const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
+        this.props.gameWorker.postMessage({
+          type: 'place',
+          itemId: closestEntry[0].id,
+          cards: this.healdItems.map(item => item.id),
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+        });
+      }
     }
 
     this.healdItems = [];
@@ -141,49 +177,34 @@ class TableGames extends Component {
   }
 
   handleTouchStart(event){
-    this.handleMouseDown({
-      preventDefault(){ event.preventDefault(); },
-      pageX: event.touches[0].pageX,
-      pageY: event.touches[0].pageY,
-      altKey: event.altKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey
-    });
+    const { pageX, pageY } = event.touches[0];
+    Object.assign(event, { pageX, pageY });
+    this.handleMouseDown(event);
   }
   handleTouchMove(event){
-    this.handleMouseMove({
-      preventDefault(){ event.preventDefault(); },
-      pageX: event.touches[0].pageX,
-      pageY: event.touches[0].pageY,
-      altKey: event.altKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey
-    });
+    const { pageX, pageY } = event.touches[0];
+    Object.assign(event, { pageX, pageY });
+    this.handleMouseMove(event);
   }
   handleTouchEnd(event){
-    this.handleMouseUp({
-      preventDefault(){ event.preventDefault(); },
-      pageX: event.changedTouches[0].pageX,
-      pageY: event.changedTouches[0].pageY,
-      altKey: event.altKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey
-    });
+    const { pageX, pageY } = event.changedTouches[0];
+    Object.assign(event, { pageX, pageY });
+    this.handleMouseUp(event);
   }
 
-  render({}, { game: { width, height}, items, holding: { dx, dy } }) {
+  render({ gameWorker, onReset }, { game: { width, height, actions }, items, holding: { dx, dy } }) {
     const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
-    return html `<div style=${{height: '100%', width: '100%'}}>
+    return html`<div style=${{height: '100%', width: '100%'}}>
       <div style=${{position: 'absolute', bottom: 0}}>
-        <button onClick=${this.startSolitare}>Solitare</button>
+        <button onClick=${onReset}>exit</button>
+        ${actions.map(label => {
+          return html`<button onClick=${() => gameWorker.postMessage({ type: 'action', action: label })}>${label}</button>`;
+        })}
       </div>
       <svg
         style=${{height: '100%', width: '100%', fontSize: 12}}
         viewBox=${`0 0 ${width} ${height}`}
-        ref=${el => this.svgEl = el}
+        ref=${el => { if (el) this.svgEl = el; }}
         onMouseDown=${this.handleMouseDown}
         onMouseMove=${this.handleMouseMove}
         onMouseUp=${this.handleMouseUp}
@@ -200,6 +221,41 @@ class TableGames extends Component {
     </div>`;
   }
 }
+
+const games =
+  [ { name: 'Solitare'
+    , url: '/solitare.js'
+    }
+  , { name: 'Tap Tap'
+    , url: '/click_click.js'
+    }
+];
+
+class TableGames extends Component {
+  constructor(props){
+    super(props);
+    this.state = {};
+    this.handleLoadGame = this.handleLoadGame.bind(this);
+  }
+  handleLoadGame(url){
+    const gameWorker = new Worker('./worker.js');
+    gameWorker.postMessage({ type: 'init', url });
+    this.setState({ gameWorker });
+  }
+  render({}, { gameWorker }) {
+    if (gameWorker) return html`<${PlayGame} gameWorker=${gameWorker} onReset=${() => this.setState({ gameWorker: null })} />`;
+    return html`<div class="GamePicker">
+      ${games.map(({ name, url }) => html`<div onClick=${() => this.handleLoadGame(url)}>
+        ${name}
+      </div>`)}
+      <div>
+        <input ref=${el => this.inputEl = el} />
+        <button onClick=${() => this.handleLoadGame(this.inputEl.value)}>Play</button>
+      </div>
+    </div>`;
+  }
+}
+
 const root = document.createElement('div');
 document.body.appendChild(root);
 root.style = "height: 100%; width: 100%;"
