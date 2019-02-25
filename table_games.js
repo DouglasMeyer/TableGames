@@ -1,5 +1,20 @@
 import { html, render, Component } from 'https://unpkg.com/htm/preact/standalone.mjs';
 
+/* API
+
+{ type: 'start', width:Number, height:Number } =>
+{ type: 'resize', width:Number, height:Number } =>
+{ type: 'end' } =>
+{ type: 'action', action:String } =>
+{ type: 'pick', itemId:Number, event: { timeStamp:Number, altKey, ctrlKey, metaKey, shiftKey } } =>
+{ type: 'place', itemId:Number, itemIds:[Number], event: { timeStamp:Number, altKey, ctrlKey, metaKey, shiftKey } } =>
+=> { hold:[Number] }
+=> { itemId:Number, item: { id, x, y, image, width, height } } // add/update
+=> { itemId:Number, item: null } // remove
+=> { game: { width, height, actions:[String] } }
+
+*/
+
 class Item extends Component {
   constructor(props){
     super(props);
@@ -12,7 +27,7 @@ class Item extends Component {
       this.state.x !== nextState.x || this.state.y !== nextState.y;
     return didChange;
   }
-  componentWillUpdate(props, state){
+  componentWillUpdate(props, _state){
     if (props.x === this.props.x && props.y === this.props.y) return;
     setTimeout(() => {
       this.setState({ x: props.x, y: props.y });
@@ -51,52 +66,58 @@ class PlayGame extends Component {
     this.handleTouchStart = this.handleTouchStart.bind(this);
     this.handleTouchMove = this.handleTouchMove.bind(this);
     this.handleTouchEnd = this.handleTouchEnd.bind(this);
-    this.startGame = this.startGame.bind(this);
     this.handleResize = this.handleResize.bind(this);
   }
   componentDidMount(){
-    this.handleResize();
     window.addEventListener('resize', this.handleResize);
   }
   componentWillUnmount(){
     if (this.unsubscribe) this.unsubscribe();
   }
   handleResize(){
-    this.svgTransformationMatrix = this.svgEl.getScreenCTM().inverse();
+    delete this._svgTransformationMatrix;
+    this.props.gameWorker.postMessage({ type: 'resize', width: document.body.clientWidth, height: document.body.clientHeight });
+  }
+  get svgTransformationMatrix(){
+    if (this._svgTransformationMatrix) return this._svgTransformationMatrix;
+    this._svgTransformationMatrix = this.svgEl.getScreenCTM().inverse();
+    return this._svgTransformationMatrix;
   }
 
   async startGame(){
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
+    delete this._svgTransformationMatrix;
     this.setState(PlayGame.initialState, () => {
       const { gameWorker } = this.props;
-      gameWorker.postMessage({ type: 'start' });
+      gameWorker.postMessage({ type: 'start', width: document.body.clientWidth, height: document.body.clientHeight });
       this.unsubscribe = () => gameWorker.postMessage({ type: 'end' });
       gameWorker.onmessage = event => {
-        const { itemId, item, healdItems } = event.data;
-        if (healdItems) {
-          this.healdItems = healdItems.map(id => this.state.items.find(item => item.id === id));
+        const { game, itemId, item, hold } = event.data;
+        if (hold) {
+          this.healdItems = hold.map(id => this.state.items.find(item => item.id === id));
           this.setState({ holding: { dx: 0, dy: 0 } });
           return;
         }
-        if (itemId !== null) {
-          this.setState(({ items }) => {
-            const index = items.findIndex(({ id }) => id === itemId);
-            if (index === -1) return { items: [ ...items, item ] };
-            if (!item) return { items: [
-              ...items.slice(0, index),
-              ...items.slice(index + 1)
-            ] };
-            return { items: [
-              ...items.slice(0, index),
-              ...items.slice(index + 1),
-              item
-            ] };
+        if (game) {
+          this.setState({ game }, () => {
+            delete this._svgTransformationMatrix;
           });
-        } else {
-          this.setState({ game: item });
-          setTimeout(this.handleResize, 10);
+          return;
         }
+        this.setState(({ items }) => {
+          const index = items.findIndex(({ id }) => id === itemId);
+          if (index === -1) return { items: [ ...items, item ] };
+          if (!item) return { items: [
+            ...items.slice(0, index),
+            ...items.slice(index + 1)
+          ] };
+          return { items: [
+            ...items.slice(0, index),
+            ...items.slice(index + 1),
+            item
+          ] };
+        });
       };
     });
   }
@@ -109,7 +130,7 @@ class PlayGame extends Component {
 
     return this.state.items.slice().reverse().find(item => {
       if (this.healdItems.includes(item)) return false;
-      const { id, x, y, width, height } = item;
+      const { x, y, width, height } = item;
       return svgPoint.x >= x && svgPoint.x <= (x + width) &&
              svgPoint.y >= y && svgPoint.y <= (y + height);
     });
@@ -166,7 +187,7 @@ class PlayGame extends Component {
         this.props.gameWorker.postMessage({
           type: 'place',
           itemId: closestEntry[0].id,
-          cards: this.healdItems.map(item => item.id),
+          itemIds: this.healdItems.map(item => item.id),
           event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
         });
       }
@@ -238,11 +259,10 @@ class TableGames extends Component {
     this.handleLoadGame = this.handleLoadGame.bind(this);
   }
   handleLoadGame(url){
-    const gameWorker = new Worker('./worker.js');
-    gameWorker.postMessage({ type: 'init', url });
+    const gameWorker = new Worker(url);
     this.setState({ gameWorker });
   }
-  render({}, { gameWorker }) {
+  render(_props, { gameWorker }) {
     if (gameWorker) return html`<${PlayGame} gameWorker=${gameWorker} onReset=${() => this.setState({ gameWorker: null })} />`;
     return html`<div class="GamePicker">
       ${games.map(({ name, url }) => html`<div onClick=${() => this.handleLoadGame(url)}>
@@ -258,5 +278,5 @@ class TableGames extends Component {
 
 const root = document.createElement('div');
 document.body.appendChild(root);
-root.style = "height: 100%; width: 100%;"
+root.style = "height: 100%; width: 100%;";
 render(html`<${TableGames} />`, root);

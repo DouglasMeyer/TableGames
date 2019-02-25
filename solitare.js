@@ -5,29 +5,6 @@ const cards = new Array(52).fill().map((_, index) => ({
   value: index % 13 + 1
 }));
 
-function makeEnumerable(object, ...properties) {
-  const prototype = Object.getPrototypeOf(object);
-  properties.forEach(property => {
-    let parent = object;
-    let descriptor;
-    while (parent && !descriptor) {
-      descriptor = Object.getOwnPropertyDescriptor(parent, property);
-      parent = Object.getPrototypeOf(parent);
-    }
-    if (!descriptor) {
-      return;
-    }
-    descriptor.enumerable = true;
-    Object.defineProperty(object, property, descriptor);
-  });
-}
-/* API
-items: []
-x, y, width, height, image
-canPick, pick(keys) => []
-canPlace, place(keys, cardsToPlace)
-*/
-
 class Card {
   static get url() { return `/Contemporary_playing_cards.svg`; }
   static get width() { return 72; }
@@ -44,12 +21,8 @@ class Card {
   }
   constructor(game, id, suit, value) {
     Object.assign(this, {
-      id, suit, value, revealed: false
+      game, id, suit, value, revealed: false
     });
-    Object.defineProperties(this, {
-      game: { enumerable: false, value: game },
-    });
-    makeEnumerable(this, 'width', 'height', 'image', 'x', 'y');
   }
   get image() {
     if (this.revealed) return `${Card.url}#${this.value}_${this.suit}`;
@@ -89,13 +62,8 @@ class Stack {
   get height(){ return Card.height; }
   constructor(game, x, y) {
     Object.assign(this, {
-      x, y
+      game, x, y, items: []
     });
-    Object.defineProperties(this, {
-      game: { enumerable: false, value: game },
-      items: { enumerable: false, value: [] }
-    });
-    makeEnumerable(this, 'width', 'height', 'image');
   }
   get image() { return `${Card.url}#stack`; }
   cardPos(card) {
@@ -201,26 +169,7 @@ class CascadingStack extends Stack {
 }
 
 const sleep = seconds => new Promise(resolve => setTimeout(resolve, 1000*seconds));
-class Solitare {
-  constructor() {
-    this.subscriptions = [];
-    [ this.width, this.height ] = Card.pos(7, 4);
-    this.drawStack = new DrawStack(this, ...Card.pos(0, 0));
-    this.discardStack = new DiscardStack(this, ...Card.pos(1, 0));
-    this.goalStacks = new Array(4).fill().map((_, i) => new GoalStack(this, ...Card.pos(3+i, 0)));
-    this.cascadingStacks = new Array(7).fill().map((_, i) => new CascadingStack(this, ...Card.pos(i, 1)));
-    this.items = [
-      ...this.cascadingStacks,
-      this.drawStack,
-      this.discardStack,
-      ...this.goalStacks
-    ];
-    this.items.forEach((stack, index) => { stack.id = `stack_${index}`; });
-    cards.slice().sort(() => Math.random() - 0.5).forEach(({ id, suit, value }) => {
-      this.drawStack.items.push(new Card(this, id, suit, value));
-    })
-    this.deal();
-  }
+const solitare = {
   async deal() {
     for (let i=0; i<7; i++) {
       let card;
@@ -235,7 +184,7 @@ class Solitare {
       card.revealed = true;
       card.trigger();
     }
-  }
+  },
   async checkWin() {
     if (!this.goalStacks.every(stack => stack.items.length === 13)) return;
     for (let index=0,stack; stack=this.goalStacks[index]; index++){
@@ -254,46 +203,90 @@ class Solitare {
       });
       await sleep(0.5);
     }
+  },
+  trigger(itemId, { x, y, width, height, image }){
+    postMessage({ itemId, item: { id: itemId, x, y, width, height, image } });
   }
-  subscribe(fn) {
-    this.subscriptions.push(fn);
-    fn(null, {
-      width: this.width, height: this.height,
-      actions: {
-        Deal: async function(){
-          this.items.forEach(stack =>
-            this.drawStack.items.push(...stack.items.splice(0))
-          );
-          this.drawStack.items.sort(() => Math.random() - 0.5);
-          this.drawStack.items.forEach(card => {
-            card.revealed = false;
-            card.trigger();
-          });
-          await sleep(0.3);
-          this.deal();
-        }.bind(this)
-      }
-    });
-    this.items.forEach(stack => {
-      stack.trigger();
-    });
-    this.items.forEach(stack => {
-      stack.items.forEach(item => {
-        item.trigger();
+};
+(function(){
+  solitare.actions = {
+    Deal: async function(){
+      this.items.forEach(stack =>
+        this.drawStack.items.push(...stack.items.splice(0))
+      );
+      this.drawStack.items.sort(() => Math.random() - 0.5);
+      this.drawStack.items.forEach(card => {
+        card.revealed = false;
+        card.trigger();
       });
+      await sleep(0.3);
+      this.deal();
+    }.bind(solitare)
+  };
+  [ solitare.width, solitare.height ] = Card.pos(7, 4);
+  solitare.drawStack = new DrawStack(solitare, ...Card.pos(0, 0));
+  solitare.discardStack = new DiscardStack(solitare, ...Card.pos(1, 0));
+  solitare.goalStacks = new Array(4).fill().map((_, i) => new GoalStack(solitare, ...Card.pos(3+i, 0)));
+  solitare.cascadingStacks = new Array(7).fill().map((_, i) => new CascadingStack(solitare, ...Card.pos(i, 1)));
+  solitare.items = [
+    ...solitare.cascadingStacks,
+    solitare.drawStack,
+    solitare.discardStack,
+    ...solitare.goalStacks
+  ];
+  solitare.items.forEach((stack, index) => { stack.id = `stack_${index}`; });
+  cards.slice().sort(() => Math.random() - 0.5).forEach(({ id, suit, value }) => {
+    solitare.drawStack.items.push(new Card(solitare, id, suit, value));
+  });
+  solitare.deal();
+})();
+
+function start({ _width, _height }){
+  postMessage({
+    game: {
+      width: solitare.width, height: solitare.height,
+      actions: Object.keys(solitare.actions)
+    }
+  });
+  solitare.items.forEach(stack => {
+    stack.trigger();
+  });
+  solitare.items.forEach(stack => {
+    stack.items.forEach(item => {
+      item.trigger();
     });
-    return function unsubscribe(){
-      const index = this.subscriptions.indexOf(fn);
-      if (index === -1) return false;
-      this.subscriptions.splice(index, 1);
-      return true;
-    }.bind(this);
-  }
-  trigger(itemId, item) {
-    this.subscriptions.forEach(fn => fn(itemId, item));
+  });
+}
+function pick({ itemId, event }){
+  const items = {};
+  solitare.items.forEach(stack => {
+    items[stack.id] = stack;
+    stack.items.forEach(i =>
+      items[i.id] = i
+    );
+  });
+  const item = items[itemId];
+  if (item) {
+    const hold = (item.pick(event) || []).map(({ id }) => id);
+    postMessage({ hold });
   }
 }
-function game(fn){
-  const solitare = new Solitare();
-  return solitare.subscribe(fn);
+function place({ itemId, itemIds, event }){
+  const items = {};
+  solitare.items.forEach(stack => {
+    items[stack.id] = stack;
+    stack.items.forEach(i =>
+      items[i.id] = i
+    );
+  });
+  const cards = itemIds.map(id => items[id]);
+  items[itemId].place(event, cards);
 }
+
+// eslint-disable-next-line no-undef
+onmessage = function({ data }){
+  if (data.type === 'start') start(data);
+  else if (data.type === 'action' && solitare.actions[data.action]) solitare.actions[data.action]();
+  else if (data.type === 'pick') pick(data);
+  else if (data.type === 'place') place(data);
+};
