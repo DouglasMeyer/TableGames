@@ -88,38 +88,37 @@ class PlayGame extends Component {
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
     delete this._svgTransformationMatrix;
-    this.setState(PlayGame.initialState, () => {
-      const { gameWorker } = this.props;
-      gameWorker.postMessage({ type: 'start', width: document.body.clientWidth, height: document.body.clientHeight });
-      this.unsubscribe = () => gameWorker.postMessage({ type: 'end' });
-      gameWorker.onmessage = event => {
-        const { game, itemId, item, hold } = event.data;
-        if (hold) {
-          this.healdItems = hold.map(id => this.state.items.find(item => item.id === id));
-          this.setState({ holding: { dx: 0, dy: 0 } });
-          return;
-        }
-        if (game) {
-          this.setState({ game }, () => {
-            delete this._svgTransformationMatrix;
-          });
-          return;
-        }
-        this.setState(({ items }) => {
-          const index = items.findIndex(({ id }) => id === itemId);
-          if (index === -1) return { items: [ ...items, item ] };
-          if (!item) return { items: [
-            ...items.slice(0, index),
-            ...items.slice(index + 1)
-          ] };
-          return { items: [
-            ...items.slice(0, index),
-            ...items.slice(index + 1),
-            item
-          ] };
+    await new Promise(resolve => this.setState(PlayGame.initialState, resolve));
+    const { gameWorker } = this.props;
+    gameWorker.postMessage({ type: 'start', width: document.body.clientWidth, height: document.body.clientHeight });
+    this.unsubscribe = () => gameWorker.postMessage({ type: 'end' });
+    gameWorker.onmessage = event => {
+      const { game, itemId, item, hold } = event.data;
+      if (hold) {
+        this.healdItems = hold.map(id => this.state.items.find(item => item.id === id));
+        this.setState({ holding: { dx: 0, dy: 0 } });
+        return;
+      }
+      if (game) {
+        this.setState({ game }, () => {
+          delete this._svgTransformationMatrix;
         });
-      };
-    });
+        return;
+      }
+      this.setState(({ items }) => {
+        const index = items.findIndex(({ id }) => id === itemId);
+        if (index === -1) return { items: [ ...items, item ] };
+        if (!item) return { items: [
+          ...items.slice(0, index),
+          ...items.slice(index + 1)
+        ] };
+        return { items: [
+          ...items.slice(0, index),
+          ...items.slice(index + 1),
+          item
+        ] };
+      });
+    };
   }
 
   itemAt(x, y){
@@ -134,6 +133,31 @@ class PlayGame extends Component {
       return svgPoint.x >= x && svgPoint.x <= (x + width) &&
              svgPoint.y >= y && svgPoint.y <= (y + height);
     });
+  }
+  itemUnderItem(centerItem){
+    const { dx, dy } = this.state.holding;
+    const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
+    const healdCenter = {
+      x: centerItem.x + dx/scale + centerItem.width/2,
+      y: centerItem.y + dy/scale + centerItem.height/2
+    };
+    const itemDistances = new Map();
+    this.state.items.forEach(item => {
+      if (
+        this.healdItems.includes(item) ||
+        item.x + item.width < centerItem.x + dx/scale ||
+        item.y + item.height < centerItem.y + dy/scale ||
+        item.x > centerItem.x + dx/scale + centerItem.width ||
+        item.y > centerItem.y + dy/scale + centerItem.height
+      ) return;
+      itemDistances.set(item, Math.pow(
+        Math.pow(item.x + item.width/2 - healdCenter.x, 2) +
+        Math.pow(item.y + item.height/2 - healdCenter.y, 2)
+      , 0.5));
+    });
+    const minDistance = Math.min(...itemDistances.values());
+    const closestEntity = [...itemDistances.entries()].find(([ _item, distance ]) => distance === minDistance);
+    if (closestEntity) return closestEntity[0];
   }
 
   handleMouseDown(event){
@@ -151,42 +175,41 @@ class PlayGame extends Component {
   }
   handleMouseMove(event){
     const { pageX: x, pageY: y } = event;
-    if (!this.healdItems.length) return;
-    this.setState({ holding: {
-      dx: x - this.dragStart.x,
-      dy: y - this.dragStart.y
-    } });
+    if (this.healdItems.length) {
+      this.setState({ holding: {
+        dx: x - this.dragStart.x,
+        dy: y - this.dragStart.y
+      } });
+      const itemUnderItem = this.itemUnderItem(this.healdItems[0]);
+      if (itemUnderItem) {
+        const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
+        this.props.gameWorker.postMessage({
+          type: 'canPlace',
+          itemId: itemUnderItem.id,
+          itemIds: this.healdItems.map(item => item.id),
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+        });
+      }
+    } else {
+      const item = this.itemAt(event.pageX, event.pageY);
+      if (item) {
+        const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
+        this.props.gameWorker.postMessage({
+          type: 'canPick',
+          itemId: item.id,
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+        });
+      }
+    }
   }
   handleMouseUp(event){
-    const { dx, dy } = this.state.holding;
-    const scale = this.svgEl && 1 / this.svgTransformationMatrix.a;
-    const healdItem = this.healdItems[0];
-    if (healdItem) {
-      const healdCenter = {
-        x: healdItem.x + dx/scale + healdItem.width/2,
-        y: healdItem.y + dy/scale + healdItem.height/2
-      };
-      const itemDistances = new Map();
-      this.state.items.forEach(item => {
-        if (
-          this.healdItems.includes(item) ||
-          item.x + item.width < healdItem.x + dx/scale ||
-          item.y + item.height < healdItem.y + dy/scale ||
-          item.x > healdItem.x + dx/scale + healdItem.width ||
-          item.y > healdItem.y + dy/scale + healdItem.height
-        ) return;
-        itemDistances.set(item, Math.pow(
-          Math.pow(item.x + item.width/2 - healdCenter.x, 2) +
-          Math.pow(item.y + item.height/2 - healdCenter.y, 2)
-        , 0.5));
-      });
-      const minDistance = Math.min(...itemDistances.values());
-      const closestEntry = [...itemDistances.entries()].find(([ item, distance ]) => distance === minDistance);
-      if (closestEntry) {
+    if (this.healdItems[0]) {
+      const itemUnderItem = this.itemUnderItem(this.healdItems[0]);
+      if (itemUnderItem) {
         const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
         this.props.gameWorker.postMessage({
           type: 'place',
-          itemId: closestEntry[0].id,
+          itemId: itemUnderItem.id,
           itemIds: this.healdItems.map(item => item.id),
           event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
         });
@@ -248,7 +271,7 @@ const games =
     , url: '/solitare.js'
     }
   , { name: 'Tap Tap'
-    , url: '/click_click.js'
+    , url: '/tap_tap.js'
     }
 ];
 
