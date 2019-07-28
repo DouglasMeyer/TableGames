@@ -121,12 +121,13 @@ class PlayGame extends Component {
     };
   }
 
-  itemAt(x, y){
+  toSVGPoint(point) {
     const domPoint = this.svgEl.createSVGPoint();
-    domPoint.x = x;
-    domPoint.y = y;
-    const svgPoint = domPoint.matrixTransform(this.svgTransformationMatrix);
-
+    domPoint.x = point.x;
+    domPoint.y = point.y;
+    return domPoint.matrixTransform(this.svgTransformationMatrix);
+  }
+  itemAt(svgPoint){
     return this.state.items.slice().reverse().find(item => {
       if (this.healdItems.includes(item)) return false;
       const { x, y, width, height } = item;
@@ -162,23 +163,24 @@ class PlayGame extends Component {
 
   handleMouseDown(event){
     event.preventDefault();
-    const item = this.itemAt(event.pageX, event.pageY);
+    const { x, y } = this.toSVGPoint({ x: event.pageX, y: event.pageY });
+    const item = this.itemAt({ x, y });
     if (!item) return;
     const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
     this.props.gameWorker.postMessage({
       type: 'pick',
       itemId: item.id,
-      event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+      event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp, x, y }
     });
 
     this.dragStart = { x: event.pageX, y: event.pageY };
   }
   handleMouseMove(event){
-    const { pageX: x, pageY: y } = event;
+    const { x, y } = this.toSVGPoint({ x: event.pageX, y: event.pageY });
     if (this.healdItems.length) {
       this.setState({ holding: {
-        dx: x - this.dragStart.x,
-        dy: y - this.dragStart.y
+        dx: event.pageX - this.dragStart.x,
+        dy: event.pageY - this.dragStart.y
       } });
       const itemUnderItem = this.itemUnderItem(this.healdItems[0]);
       if (itemUnderItem) {
@@ -187,23 +189,24 @@ class PlayGame extends Component {
           type: 'canPlace',
           itemId: itemUnderItem.id,
           itemIds: this.healdItems.map(item => item.id),
-          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp, x, y }
         });
       }
     } else {
-      const item = this.itemAt(event.pageX, event.pageY);
+      const item = this.itemAt({ x, y });
       if (item) {
         const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
         this.props.gameWorker.postMessage({
           type: 'canPick',
           itemId: item.id,
-          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp, x, y }
         });
       }
     }
   }
   handleMouseUp(event){
     if (this.healdItems[0]) {
+      const { x, y } = this.toSVGPoint({ x: event.pageX, y: event.pageY });
       const itemUnderItem = this.itemUnderItem(this.healdItems[0]);
       if (itemUnderItem) {
         const { altKey, ctrlKey, metaKey, shiftKey, timeStamp } = event;
@@ -211,7 +214,7 @@ class PlayGame extends Component {
           type: 'place',
           itemId: itemUnderItem.id,
           itemIds: this.healdItems.map(item => item.id),
-          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp }
+          event: { altKey, ctrlKey, metaKey, shiftKey, timeStamp, x, y }
         });
       }
     }
@@ -272,6 +275,9 @@ const games =
     }
   , { name: 'Tap Tap'
     , url: '/tap_tap.js'
+    }
+  , { name: 'Fling'
+    , url: '/fling.js'
     }
 ];
 

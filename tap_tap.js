@@ -1,58 +1,61 @@
+const game = {
+  width: null,
+  height: null,
+  fleeing: false,
+  showOptions: false,
+  items: {}
+};
+
+class Item {
+  constructor(id) {
+    this.id = id;
+    game.items[id] = this;
+  }
+  post() {
+    const { id, x, y, image, width, height } = this;
+    postMessage({ itemId: id, item: { id, x, y, image, width, height } });
+  }
+  remove() {
+    postMessage({ itemId: this.id });
+  }
+}
+class InterfaceItem extends Item {
+  constructor(props) {
+    super(props.id);
+    this.x = this.y = this.width = this.height = 0;
+    Object.defineProperties(this, Object.getOwnPropertyDescriptors(props));
+  }
+  post() {
+    if (game.showOptions) super.post();
+  }
+}
 const cardWidth = 72;
 const cardHeight = 110;
 const suits = 'Heart Diamond Spade Club'.split(' ');
-const cards = {};
-new Array(52).fill().forEach((_, index) => {
-  cards[index] = {
-    id: String(index),
-    suit: suits[Math.floor(index / 13)],
-    value: index % 13 + 1,
-    width: cardWidth, height: cardHeight
-  };
-  cards[index].image = `/Contemporary_playing_cards.svg#${cards[index].value}_${cards[index].suit}`;
-});
+class Card extends Item {
+  constructor(index) {
+    super(`card ${index}`);
+    this.suit = suits[Math.floor(index / 13)];
+    this.value = index % 13 + 1;
+    this.width = cardWidth;
+    this.height = cardHeight;
+  }
+  get image() {
+    return `/Contemporary_playing_cards.svg#${this.value}_${this.suit}`;
+  }
+  canPick() {
+    if (game.fleeing) this.pick();
+  }
+  pick() {
+    this.x = Math.random() * (game.width - cardWidth);
+    this.y = Math.random() * (game.height - cardHeight);
+    this.post();
+  }
+}
 
-let width, height;
-function start(opts) {
-  resize(opts);
-  boom();
-}
-function resize({ width: w, height: h }) {
-  width = w;
-  height = h;
-  postMessage({
-    game: {
-      width, height,
-      actions: [ 'options' ]
-    }
-  });
-  Object.entries(cards).forEach(([ itemId, card ]) => {
-    if (card.x + card.width > width || card.y + card.height > height) {
-      pick({ itemId });
-    }
-  });
-}
-async function boom() {
-  const keys = Object.keys(cards);
-  for (let itemId of keys) {
-    const card = cards[itemId];
-    card.x = width/2 - card.width/2;
-    card.y = height/2 - card.height/2;
-    postMessage({ itemId, item: card });
-  }
-  keys.reverse();
-  await new Promise(resolve => setTimeout(resolve, 500));
-  for (let itemId of keys) {
-    await new Promise(resolve => setTimeout(resolve, 25));
-    pick({ itemId });
-  }
-}
-function pick({ itemId, _event }) {
-  const card = cards[itemId];
-  card.x = Math.random() * (width - cardWidth);
-  card.y = Math.random() * (height - cardHeight);
-  postMessage({ itemId: card.id, item: card });
-}
+new Array(52).fill().forEach((_, index) => {
+  new Card(index);
+});
 
 const interfaceURL = URL.createObjectURL(new Blob([`
 <svg xmlns='http://www.w3.org/2000/svg'>
@@ -68,74 +71,93 @@ const interfaceURL = URL.createObjectURL(new Blob([`
     <text x="50" y="30" text-anchor="middle" font-size="20px">Flee</text>
   </g>
 </svg>`], { type: 'image/svg+xml' }));
-const optionsInterface = {
-  background: {
-    id: 'options_background', x: 0, y: 0, width, height, image: interfaceURL+'#background',
-    pick(){
-      state.fn = game;
-      Object.keys(optionsInterface.items).forEach(itemId => postMessage({ itemId }));
+const interfaceItems = [
+  new InterfaceItem({
+    id: 'options_background', image: interfaceURL+'#background',
+    get width(){ return game.width; },
+    get height(){ return game.height; },
+    pick() {
+      game.showOptions = false;
+      interfaceItems.forEach(item => item.remove());
     }
-  },
-  window: {
-    id: 'options_window', x: 0, y: 0, width: 300, height: 100, image: interfaceURL+'#window'
-  },
-  selected: {
-    id: 'options_selected', x: 0, y: 0, width: 100, height: 50, image: interfaceURL+'#selected'
-  },
-  moveButton: {
-    id: 'options_move', x: 0, y: 0, width: 100, height: 50, image: interfaceURL+'#move_button',
-    pick(){ state.type = 'move'; optionsInterface.resize(); }
-  },
-  fleeButton: {
-    id: 'options_flee', x: 0, y: 0, width: 100, height: 50, image: interfaceURL+'#flee_button',
-    pick(){ state.type = 'flee'; optionsInterface.resize(); }
-  },
-  init() {
-    this.items = {};
-    [ this.background, this.window, this.selected, this.moveButton, this.fleeButton
-    ].forEach(item => this.items[item.id] = item);
-    state.fn = options;
-    this.resize();
-  },
-  resize() {
-    this.background.width = width;
-    this.background.height = height;
+  }),
+  new InterfaceItem({
+    id: 'options_window', width: 300, height: 100, image: interfaceURL+'#window',
+    get x(){ return game.width/2 - this.width/2; },
+    get y(){ return game.height/2 - this.height/2; }
+  }),
+  new InterfaceItem({
+    id: 'options_selected', width: 100, height: 50, image: interfaceURL+'#selected',
+    get x(){ return game.items[game.fleeing ? 'options_flee' : 'options_move'].x; },
+    get y(){ return game.items['options_window'].y + 25; },
+  }),
+  new InterfaceItem({
+    id: 'options_move', width: 100, height: 50, image: interfaceURL+'#move_button',
+    get x(){ return game.items['options_window'].x + 33; },
+    get y(){ return game.items['options_window'].y + 25; },
+    pick(){
+      game.fleeing = false;
+      interfaceItems.forEach(item => item.post());
+    }
+  }),
+  new InterfaceItem({
+    id: 'options_flee', width: 100, height: 50, image: interfaceURL+'#flee_button',
+    get x(){
+      const moveButton = game.items['options_move'];
+      return moveButton.x + moveButton.width + 33;
+    },
+    get y(){ return game.items['options_window'].y + 25; },
+    pick(){
+      game.fleeing = true;
+      interfaceItems.forEach(item => item.post());
+    }
+  })
+];
 
-    this.window.x = width/2 - this.window.width/2;
-    this.window.y = height/2 - this.window.height/2;
-
-    this.moveButton.y = this.fleeButton.y = this.selected.y = this.window.y + 25;
-    this.moveButton.x = this.window.x + 33;
-    this.fleeButton.x = this.moveButton.x + this.moveButton.width + 33;
-    this.selected.x = state.type === 'move'
-      ? this.moveButton.x : this.fleeButton.x;
-
-    Object.entries(this.items).forEach(([ itemId, { id, x, y, width, height, image } ]) => postMessage({ itemId, item: { id, x, y, width, height, image } }));
+async function start(opts) {
+  resize(opts);
+  const cards = Object.values(game.items).filter(item => item instanceof Card);
+  for (let card of cards) {
+    card.x = game.width/2 - card.width/2;
+    card.y = game.height/2 - card.height/2;
+    card.post();
   }
-};
-
-function game(data) {
-  if (data.type === 'start') start(data);
-  // else if (data.type === 'end') // end(); {}
-  else if (data.type === 'action' && data.action === 'options') optionsInterface.init();
-  else if (data.type === 'pick') pick(data);
-  else if (data.type === 'canPick' && state.type === 'flee') pick(data);
-  // else if (data.type === 'place') place(data);
-}
-function options(data) {
-  if (data.type === 'pick') {
-    const item = optionsInterface.items[data.itemId];
-    if (item && item.pick) item.pick();
+  cards.reverse();
+  await new Promise(resolve => setTimeout(resolve, 500));
+  for (let card of cards) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+    card.pick();
   }
 }
-
-const state = {
-  fn: game,
-  type: 'move'
-};
+function resize({ width: w, height: h }) {
+  game.width = w;
+  game.height = h;
+  postMessage({
+    game: {
+      width: game.width, height: game.height,
+      actions: [ 'options' ]
+    }
+  });
+  Object.values(game.items).forEach(item => {
+    if (item.suit && (item.x + item.width > game.width || item.y + item.height > game.height)) {
+      item.pick();
+    }
+  });
+  interfaceItems.forEach(item => item.post());
+}
 
 // eslint-disable-next-line no-undef
 onmessage = function({ data }){
+  if (data.type === 'start') start(data);
   if (data.type === 'resize') resize(data);
-  else state.fn(data);
+  if (data.type === 'action' && data.action === 'options') {
+    game.showOptions = true;
+    interfaceItems.forEach(item => item.post());
+  }
+
+  const item = game.items[data.itemId];
+  if (data.type === 'pick' && item && typeof item.pick === 'function') item.pick();
+  if (data.type === 'canPick' && item && typeof item.canPick === 'function') item.canPick();
+  if (data.type === 'place' && item && typeof item.place === 'function') item.place();
+  if (data.type === 'canPlace' && item && typeof item.canPlace === 'function') item.canPlace();
 };
