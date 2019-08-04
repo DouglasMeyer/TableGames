@@ -88,7 +88,10 @@ class PlayGame extends Component {
     if (this.unsubscribe) this.unsubscribe();
     this.unsubscribe = null;
     delete this._svgTransformationMatrix;
-    await new Promise(resolve => this.setState(PlayGame.initialState, resolve));
+    await Promise.race([
+      new Promise(resolve => this.setState(PlayGame.initialState, resolve)),
+      new Promise(resolve => requestAnimationFrame(resolve))
+    ]);
     const { gameWorker } = this.props;
     gameWorker.postMessage({ type: 'start', width: document.body.clientWidth, height: document.body.clientHeight });
     this.unsubscribe = () => gameWorker.postMessage({ type: 'end' });
@@ -272,13 +275,13 @@ class PlayGame extends Component {
 
 const games =
   [ { name: 'Solitare'
-    , url: '/solitare.js'
+    , url: './solitare.js'
     }
   , { name: 'Tap Tap'
-    , url: '/tap_tap.js'
+    , url: './tap_tap.js'
     }
   , { name: 'Fling'
-    , url: '/fling.js'
+    , url: './fling.js'
     }
 ];
 
@@ -289,7 +292,8 @@ class TableGames extends Component {
     this.handleLoadGame = this.handleLoadGame.bind(this);
   }
   handleLoadGame(url){
-    const gameWorker = new Worker(url);
+    if (this.state.gameWorker) this.state.gameWorker.terminate();
+    const gameWorker = new Worker(url, { type: 'module' });
     this.setState({ gameWorker });
   }
   render(_props, { gameWorker }) {

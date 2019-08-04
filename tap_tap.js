@@ -41,7 +41,7 @@ class Card extends Item {
     this.height = cardHeight;
   }
   get image() {
-    return `/Contemporary_playing_cards.svg#${this.value}_${this.suit}`;
+    return `./Contemporary_playing_cards.svg#${this.value}_${this.suit}`;
   }
   canPick() {
     if (game.fleeing) this.pick();

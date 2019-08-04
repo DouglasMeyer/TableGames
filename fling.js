@@ -56,7 +56,7 @@ class Card {
 Card.width = 72;
 Card.height = 110;
 Card.suits = 'Heart Diamond Spade Club'.split(' ');
-Card.image = '/Contemporary_playing_cards.svg';
+Card.image = './Contemporary_playing_cards.svg';
 
 const items = {};
 const background = {

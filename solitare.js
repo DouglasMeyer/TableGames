@@ -6,7 +6,7 @@ const cards = new Array(52).fill().map((_, index) => ({
 }));
 
 class Card {
-  static get url() { return `/Contemporary_playing_cards.svg`; }
+  static get url() { return `./Contemporary_playing_cards.svg`; }
   static get width() { return 72; }
   get width(){ return Card.width; }
   static get height() { return 110; }
