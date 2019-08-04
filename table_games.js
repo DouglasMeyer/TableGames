@@ -1,4 +1,4 @@
-import { html, render, Component } from 'https://unpkg.com/htm/preact/standalone.mjs';
+import { html, render, Component } from 'https://unpkg.com/htm@2.1.1/preact/standalone.mjs';
 
 /* API
 
@@ -107,12 +107,12 @@ class PlayGame extends Component {
       }
       this.setState(({ items }) => {
         const index = items.findIndex(({ id }) => id === itemId);
-        if (index === -1) return { items: [ ...items, item ] };
-        if (!item) return { items: [
+        if (index === -1 && item) return { items: [ ...items, item ] };
+        if (index !== -1 && !item) return { items: [
           ...items.slice(0, index),
           ...items.slice(index + 1)
         ] };
-        return { items: [
+        if (item) return { items: [
           ...items.slice(0, index),
           ...items.slice(index + 1),
           item
@@ -146,6 +146,7 @@ class PlayGame extends Component {
     this.state.items.forEach(item => {
       if (
         this.healdItems.includes(item) ||
+        item.interactable === false ||
         item.x + item.width < centerItem.x + dx/scale ||
         item.y + item.height < centerItem.y + dy/scale ||
         item.x > centerItem.x + dx/scale + centerItem.width ||
